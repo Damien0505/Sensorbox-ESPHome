@@ -14,6 +14,7 @@ This repository contains modified ESPHome configurations for the **3D Printer Em
 |------|-------------|
 | `airquality01.yaml` | Non-LVGL version using ESPHome's native display lambda renderer |
 | `airquality01_lvgl.yaml` | LVGL version using arc gauge widgets |
+| `winsen_ze08.h` | Header file for Winsen ZE08 Formaldahyde sensor |
 
 ---
 
