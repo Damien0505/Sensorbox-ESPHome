@@ -1,3 +1,7 @@
+substitutions:
+  # Set to "true" to use Fahrenheit and US date/time format (MM/DD/YYYY, 12-hour clock)
+  use_american: "false"
+
 esphome:
   name: airquality01
   friendly_name: AirQuality01
@@ -218,10 +222,19 @@ display:
       for (int i = 0; i < 5; i++) { if (!isnan(temps[i])) { temp = temps[i]; break; } }
       for (int i = 0; i < 4; i++) { if (!isnan(hums[i]))  { hum  = hums[i];  break; } }
 
+      // Sets unit and value for temperature based on "use_american" substitution
+      #if ${use_american}
+        float temp_display = isnan(temp) ? NAN : (temp * 9.0f / 5.0f) + 32.0f;
+        const char* temp_unit = "°F";
+      #else
+        float temp_display = temp;
+        const char* temp_unit = "°C";
+      #endif
+
       // DRAW TEMP / HUMIDITY HEADER ROW
-      if (!isnan(temp)) {
-        it.printf(90,  30, fl14, id(grey),  TextAlign::BOTTOM_LEFT,  "°C");
-        it.printf(90,  34, fv30, id(white), TextAlign::BOTTOM_RIGHT, "%.1f", temp);
+      if (!isnan(temp_display)) {
+        it.printf(90,  30, fl14, id(grey),  TextAlign::BOTTOM_LEFT,  temp_unit);
+        it.printf(90,  34, fv30, id(white), TextAlign::BOTTOM_RIGHT, "%.1f", temp_display);
       }
       if (!isnan(hum)) {
         it.printf(197, 18, fl14, id(grey),  TextAlign::BOTTOM_LEFT,  "RH");
@@ -313,8 +326,11 @@ display:
       }
 
       // FOOTER: datetime
-      it.strftime(0, 298, id(font_label_14), "%a %d/%m/%Y %H:%M:%S", id(esptime).now());
-
+      #if ${use_american}
+        it.strftime(0, 298, id(font_label_14), "%a %m/%d/%Y %I:%M:%S %p", id(esptime).now());
+      #else
+        it.strftime(0, 298, id(font_label_14), "%a %d/%m/%Y %H:%M:%S", id(esptime).now());
+      #endif
 
 # not changed rx and tx pins
 uart:

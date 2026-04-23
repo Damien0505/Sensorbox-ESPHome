@@ -12,8 +12,8 @@ This repository contains modified ESPHome configurations for the **3D Printer Em
 
 | File | Description |
 |------|-------------|
-| `airquality01.yaml` | Non-LVGL version using ESPHome's native display lambda renderer |
-| `airquality01_lvgl.yaml` | LVGL version using arc gauge widgets |
+| `sensorboxV2-nonLVGL.yaml` | Non-LVGL version using ESPHome's native display lambda renderer |
+| `sensorboxV2lvgl.yaml` | LVGL version using arc gauge widgets |
 | `winsen_ze08.h` | Header file for Winsen ZE08 Formaldahyde sensor |
 
 ---
@@ -142,6 +142,17 @@ Changed from `VERY_VERBOSE` to `DEBUG` for normal operation. `VERY_VERBOSE` gene
 
 #### SGP30 eCO2 Display
 The SGP30 eCO2 estimate has been removed from the display (though it continues to be reported to Home Assistant). The SCD40 provides a real NDIR CO2 measurement — the SGP30 eCO2 is a correlation-based estimate derived from VOC levels and is not reliable as a standalone CO2 reading.
+
+#### Optional American Units
+
+There's an optional `use_american` substitution to display temperature in Fahrenheit and use US date/time formatting:
+
+```yaml
+substitutions:
+  use_american: "false"
+```
+
+Change `"false"` to `"true"` to enable.
 
 ---
 
