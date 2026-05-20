@@ -10,7 +10,6 @@ esphome:
     version: dev
   includes:
     - winsen_ze08.h
-
 esp32:
   board: esp32-s2-saola-1
   framework:
@@ -76,6 +75,22 @@ web_server:
 debug:
   update_interval: 5s
 
+# ── ZE08 Active Mode Command ──────────────────────────────────────────────────
+# Sent 5 seconds after boot to ensure the ZE08 is in active mode.
+# Without this the sensor may remain in its warmup/sentinel state (5000 ppb).
+interval:
+  - interval: 60s
+    startup_delay: 5s
+    then:
+      - lambda: |-
+          static bool sent = false;
+          if (!sent) {
+            uint8_t cmd[] = {0xFF, 0x01, 0x78, 0x40, 0x00, 0x00, 0x00, 0x00, 0x47};
+            id(uart_ze08).write_array(cmd, sizeof(cmd));
+            ESP_LOGD("ze08", "Active mode command sent");
+            sent = true;
+          }
+
 
 # ── PM Display Mode Switch ───────────────────────────────────────────────────
 # Exposed to Home Assistant — allows toggling between cumulative and differential
@@ -95,20 +110,14 @@ switch:
       - lvgl.label.update:
           id: lbl_particles_mode
           text: "PARTICLES DIFF  µg/m³"
-      - lvgl.label.update:
-          id: lbl_pm25_name
-          text: "PM1-2.5"
-      - lvgl.label.update:
-          id: lbl_pm10_name
-          text: "PM2.5-10"
-      - lvgl.arc.update:
+      - lvgl.bar.update:
           id: arc_pm25
           value: !lambda "return id(lv_pm25_val);"
       - lvgl.label.update:
           id: lbl_pm25
           text: !lambda |-
             char buf[8]; snprintf(buf, sizeof(buf), "%d", id(lv_pm25_val)); return buf;
-      - lvgl.arc.update:
+      - lvgl.bar.update:
           id: arc_pm10
           value: !lambda "return id(lv_pm10_val);"
       - lvgl.label.update:
@@ -123,20 +132,14 @@ switch:
       - lvgl.label.update:
           id: lbl_particles_mode
           text: "PARTICLES CUMUL  µg/m³"
-      - lvgl.label.update:
-          id: lbl_pm25_name
-          text: "PM2.5"
-      - lvgl.label.update:
-          id: lbl_pm10_name
-          text: "PM10"
-      - lvgl.arc.update:
+      - lvgl.bar.update:
           id: arc_pm25
           value: !lambda "return id(lv_pm25_val);"
       - lvgl.label.update:
           id: lbl_pm25
           text: !lambda |-
             char buf[8]; snprintf(buf, sizeof(buf), "%d", id(lv_pm25_val)); return buf;
-      - lvgl.arc.update:
+      - lvgl.bar.update:
           id: arc_pm10
           value: !lambda "return id(lv_pm10_val);"
       - lvgl.label.update:
@@ -262,11 +265,24 @@ font:
 #   SGP41 section hidden — overlaps VOC area, reveals if SGP4x ever connected.
 
 lvgl:
+  gradients:
+    # Green -> Amber -> Red gradient for all sensor bars
+    # Applied horizontally so low values show green, mid amber, high red
+    - id: bar_grad
+      direction: hor
+      stops:
+        - color: 0x00C800   # green  — good
+          position: 0%
+        - color: 0xFF9900   # amber  — warning (~50% of scale)
+          position: 50%
+        - color: 0xFF1616   # red    — danger
+          position: 100%
   displays:
     - main_display
   bg_color: 0x000000
   text_color: 0xFFFFFF
 
+  scrollbar_mode: "OFF"
   widgets:
 
     # ── HEADER ───────────────────────────────────────────────────────────────
@@ -274,10 +290,11 @@ lvgl:
         x: 0
         y: 0
         width: 240
-        height: 39
+        height: 44
         bg_color: 0x000000
         border_width: 0
         pad_all: 0
+        scrollbar_mode: "OFF"
         widgets:
           - label:
               x: 4
@@ -346,7 +363,7 @@ lvgl:
           - label:
               id: lbl_datetime
               x: 4
-              y: 28
+              y: 31
               text: "--/--/---- --:--"
               text_font: font_small
               text_color: 0x444444
@@ -354,7 +371,7 @@ lvgl:
     # ── DIVIDER ──────────────────────────────────────────────────────────────
     - line:
         x: 0
-        y: 39
+        y: 44
         points:
           - 0, 0
           - 240, 0
@@ -365,12 +382,13 @@ lvgl:
     - obj:
         id: section_particles
         x: 0
-        y: 40
+        y: 45
         width: 240
-        height: 95
+        height: 90
         bg_color: 0x000000
         border_width: 0
         pad_all: 0
+        scrollbar_mode: "OFF"
         hidden: true
         widgets:
           - label:
@@ -405,148 +423,113 @@ lvgl:
                       id: lbl_particles_mode
                       text: !lambda |-
                         return std::string(id(pm_diff_mode) ? "PARTICLES DIFF  µg/m³" : "PARTICLES CUMUL  µg/m³");
-                  - lvgl.arc.update:
+                  - lvgl.bar.update:
                       id: arc_pm1
                       value: !lambda "return id(lv_pm1_val);"
                   - lvgl.label.update:
                       id: lbl_pm1
                       text: !lambda |-
                         char buf[8]; snprintf(buf, sizeof(buf), "%d", id(lv_pm1_val)); return buf;
-                  - lvgl.arc.update:
+                  - lvgl.bar.update:
                       id: arc_pm25
                       value: !lambda "return id(lv_pm25_val);"
                   - lvgl.label.update:
                       id: lbl_pm25
                       text: !lambda |-
                         char buf[8]; snprintf(buf, sizeof(buf), "%d", id(lv_pm25_val)); return buf;
-                  - lvgl.arc.update:
+                  - lvgl.bar.update:
                       id: arc_pm10
                       value: !lambda "return id(lv_pm10_val);"
                   - lvgl.label.update:
                       id: lbl_pm10
                       text: !lambda |-
                         char buf[8]; snprintf(buf, sizeof(buf), "%d", id(lv_pm10_val)); return buf;
-                  - lvgl.label.update:
-                      id: lbl_pm1_name
-                      text: "PM1"
-                  - lvgl.label.update:
-                      id: lbl_pm25_name
-                      text: !lambda |-
-                        return std::string(id(pm_diff_mode) ? "PM1-2.5" : "PM2.5");
-                  - lvgl.label.update:
-                      id: lbl_pm10_name
-                      text: !lambda |-
-                        return std::string(id(pm_diff_mode) ? "PM2.5-10" : "PM10");
 
-          - obj:
-              x: 0
-              y: 16
-              width: 240
-              height: 72
-              bg_color: 0x000000
-              border_width: 0
-              pad_all: 0
-              layout:
-                type: flex
-                flex_flow: ROW
-                flex_align_main: CENTER
-                flex_align_cross: CENTER
-              widgets:
-                - arc:
-                    id: arc_pm1
-                    width: 72
-                    height: 72
-                    min_value: 0
-                    max_value: 30
-                    value: 0
-                    start_angle: 150
-                    end_angle: 30
-                    arc_width: 7
-                    arc_color: 0x2a2a2a
-                    indicator:
-                      arc_width: 7
-                      arc_color: 0xFFFFFF
-                      arc_rounded: true
-                    adjustable: false
-                    widgets:
-                      - label:
-                          id: lbl_pm1
-                          align: CENTER
-                          y: -5
-                          text: "--"
-                          text_font: font_value
-                          text_color: 0xFFFFFF
-                      - label:
-                          id: lbl_pm1_name
-                          align: BOTTOM_MID
-                          y: 2
-                          text: "PM1"
-                          text_font: font_small
-                          text_color: 0x666666
 
-                - arc:
-                    id: arc_pm25
-                    width: 72
-                    height: 72
-                    min_value: 0
-                    max_value: 30
-                    value: 0
-                    start_angle: 150
-                    end_angle: 30
-                    arc_width: 7
-                    arc_color: 0x2a2a2a
-                    indicator:
-                      arc_width: 7
-                      arc_color: 0xFFFFFF
-                      arc_rounded: true
-                    adjustable: false
-                    widgets:
-                      - label:
-                          id: lbl_pm25
-                          align: CENTER
-                          y: -5
-                          text: "--"
-                          text_font: font_value
-                          text_color: 0xFFFFFF
-                      - label:
-                          id: lbl_pm25_name
-                          align: BOTTOM_MID
-                          y: 2
-                          text: "PM2.5"
-                          text_font: font_small
-                          text_color: 0x666666
+          # PM bar rows — name | bar | value
+          - label:
+              id: lbl_pm1_name
+              x: 4
+              y: 18
+              text: "PM1"
+              text_font: font_small
+              text_color: 0x888888
+          - bar:
+              id: arc_pm1
+              x: 50
+              y: 18
+              width: 140
+              height: 10
+              min_value: 0
+              max_value: 30
+              value: 0
+              bg_color: 0x2a2a2a
+              indicator:
+                bg_grad: bar_grad
+                bg_color: 0x00C800
+          - label:
+              id: lbl_pm1
+              x: 196
+              y: 14
+              text: "--"
+              text_font: font_small
+              text_color: 0xFFFFFF
 
-                - arc:
-                    id: arc_pm10
-                    width: 72
-                    height: 72
-                    min_value: 0
-                    max_value: 100
-                    value: 0
-                    start_angle: 150
-                    end_angle: 30
-                    arc_width: 7
-                    arc_color: 0x2a2a2a
-                    indicator:
-                      arc_width: 7
-                      arc_color: 0xFFFFFF
-                      arc_rounded: true
-                    adjustable: false
-                    widgets:
-                      - label:
-                          id: lbl_pm10
-                          align: CENTER
-                          y: -5
-                          text: "--"
-                          text_font: font_value
-                          text_color: 0xFFFFFF
-                      - label:
-                          id: lbl_pm10_name
-                          align: BOTTOM_MID
-                          y: 2
-                          text: "PM10"
-                          text_font: font_small
-                          text_color: 0x666666
+          - label:
+              id: lbl_pm25_name
+              x: 4
+              y: 36
+              text: "PM2.5"
+              text_font: font_small
+              text_color: 0x888888
+          - bar:
+              id: arc_pm25
+              x: 50
+              y: 36
+              width: 140
+              height: 10
+              min_value: 0
+              max_value: 30
+              value: 0
+              bg_color: 0x2a2a2a
+              indicator:
+                bg_grad: bar_grad
+                bg_color: 0x00C800
+          - label:
+              id: lbl_pm25
+              x: 196
+              y: 32
+              text: "--"
+              text_font: font_small
+              text_color: 0xFFFFFF
+
+          - label:
+              id: lbl_pm10_name
+              x: 4
+              y: 56
+              text: "PM10"
+              text_font: font_small
+              text_color: 0x888888
+          - bar:
+              id: arc_pm10
+              x: 50
+              y: 56
+              width: 140
+              height: 10
+              min_value: 0
+              max_value: 100
+              value: 0
+              bg_color: 0x2a2a2a
+              indicator:
+                bg_grad: bar_grad
+                bg_color: 0x00C800
+          - label:
+              id: lbl_pm10
+              x: 196
+              y: 52
+              text: "--"
+              text_font: font_small
+              text_color: 0xFFFFFF
 
     # ── DIVIDER ──────────────────────────────────────────────────────────────
     - line:
@@ -570,6 +553,7 @@ lvgl:
         bg_color: 0x000000
         border_width: 0
         pad_all: 0
+        scrollbar_mode: "OFF"
         hidden: true
         widgets:
           - label:
@@ -583,7 +567,7 @@ lvgl:
               x: 0
               y: 16
               width: 240
-              height: 76
+              height: 72
               bg_color: 0x000000
               border_width: 0
               pad_all: 0
@@ -595,8 +579,8 @@ lvgl:
               widgets:
                 - arc:
                     id: arc_co2
-                    width: 95
-                    height: 76
+                    width: 90
+                    height: 72
                     min_value: 400
                     max_value: 2000
                     value: 400
@@ -626,8 +610,8 @@ lvgl:
 
                 - arc:
                     id: arc_eco2
-                    width: 95
-                    height: 76
+                    width: 90
+                    height: 72
                     min_value: 400
                     max_value: 2000
                     value: 400
@@ -668,6 +652,7 @@ lvgl:
 
     # ── VOC SECTION ──────────────────────────────────────────────────────────
     # SGP30 + ZE08 visible. ENS160 TVOC hidden (3rd slot, right).
+    # SGP41 VOC and NOx index rows at bottom, hidden until SGP4x connected.
     - obj:
         id: section_voc
         x: 0
@@ -677,6 +662,7 @@ lvgl:
         bg_color: 0x000000
         border_width: 0
         pad_all: 0
+        scrollbar_mode: "OFF"
         hidden: true
         widgets:
           - label:
@@ -686,152 +672,130 @@ lvgl:
               text_font: font_heading
               text_color: 0x666666
 
+          # VOC bar rows — name | bar | value
+          - label:
+              x: 4
+              y: 18
+              text: "SGP30"
+              text_font: font_small
+              text_color: 0x888888
+          - bar:
+              id: arc_sgp30_voc
+              x: 50
+              y: 18
+              width: 140
+              height: 10
+              min_value: 0
+              max_value: 500
+              value: 0
+              bg_color: 0x2a2a2a
+              indicator:
+                bg_grad: bar_grad
+                bg_color: 0x00C800
+          - label:
+              id: lbl_sgp30_voc
+              x: 196
+              y: 14
+              text: "---"
+              text_font: font_small
+              text_color: 0xFFFFFF
+
+          - label:
+              x: 4
+              y: 40
+              text: "CH2O"
+              text_font: font_small
+              text_color: 0x888888
+          - bar:
+              id: arc_ch2o
+              x: 50
+              y: 40
+              width: 140
+              height: 10
+              min_value: 0
+              max_value: 250
+              value: 0
+              bg_color: 0x2a2a2a
+              indicator:
+                bg_grad: bar_grad
+                bg_color: 0x00C800
+          - label:
+              id: lbl_ch2o
+              x: 196
+              y: 36
+              text: "---"
+              text_font: font_small
+              text_color: 0xFFFFFF
+
+          - label:
+              id: lbl_ens_voc_name
+              x: 4
+              y: 62
+              text: "ENS160"
+              text_font: font_small
+              text_color: 0x888888
+              hidden: true
+          - bar:
+              id: arc_ens_voc
+              x: 50
+              y: 62
+              width: 140
+              height: 10
+              min_value: 0
+              max_value: 2000
+              value: 0
+              bg_color: 0x2a2a2a
+              hidden: true
+              indicator:
+                bg_grad: bar_grad
+                bg_color: 0x00C800
+          - label:
+              id: lbl_ens_voc
+              x: 196
+              y: 58
+              text: "---"
+              text_font: font_small
+              text_color: 0xFFFFFF
+              hidden: true
+
+          # SGP41 index rows — hidden until SGP4x connected
           - obj:
+              id: section_sgp41
               x: 0
-              y: 16
+              y: 74
               width: 240
-              height: 72
+              height: 20
               bg_color: 0x000000
               border_width: 0
               pad_all: 0
-              layout:
-                type: flex
-                flex_flow: ROW
-                flex_align_main: CENTER
-                flex_align_cross: CENTER
+              hidden: true
               widgets:
-                - arc:
-                    id: arc_sgp30_voc
-                    width: 72
-                    height: 72
-                    min_value: 0
-                    max_value: 1500
-                    value: 0
-                    start_angle: 150
-                    end_angle: 30
-                    arc_width: 7
-                    arc_color: 0x2a2a2a
-                    indicator:
-                      arc_width: 7
-                      arc_color: 0xFFFFFF
-                      arc_rounded: true
-                    adjustable: false
-                    widgets:
-                      - label:
-                          id: lbl_sgp30_voc
-                          align: CENTER
-                          y: -5
-                          text: "---"
-                          text_font: font_value
-                          text_color: 0xFFFFFF
-                      - label:
-                          align: BOTTOM_MID
-                          y: 2
-                          text: "SGP30"
-                          text_font: font_small
-                          text_color: 0x666666
-
-                - arc:
-                    id: arc_ch2o
-                    width: 72
-                    height: 72
-                    min_value: 0
-                    max_value: 200
-                    value: 0
-                    start_angle: 150
-                    end_angle: 30
-                    arc_width: 7
-                    arc_color: 0x2a2a2a
-                    indicator:
-                      arc_width: 7
-                      arc_color: 0xFFFFFF
-                      arc_rounded: true
-                    adjustable: false
-                    widgets:
-                      - label:
-                          id: lbl_ch2o
-                          align: CENTER
-                          y: -5
-                          text: "---"
-                          text_font: font_value
-                          text_color: 0xFFFFFF
-                      - label:
-                          align: BOTTOM_MID
-                          y: 2
-                          text: "ZE08"
-                          text_font: font_small
-                          text_color: 0x666666
-
-                - arc:
-                    id: arc_ens_voc
-                    width: 72
-                    height: 72
-                    min_value: 0
-                    max_value: 2000
-                    value: 0
-                    start_angle: 150
-                    end_angle: 30
-                    arc_width: 7
-                    arc_color: 0x2a2a2a
-                    indicator:
-                      arc_width: 7
-                      arc_color: 0xFFFFFF
-                      arc_rounded: true
-                    adjustable: false
-                    hidden: true
-                    widgets:
-                      - label:
-                          id: lbl_ens_voc
-                          align: CENTER
-                          y: -5
-                          text: "---"
-                          text_font: font_value
-                          text_color: 0xFFFFFF
-                      - label:
-                          align: BOTTOM_MID
-                          y: 2
-                          text: "ENS160"
-                          text_font: font_small
-                          text_color: 0x666666
-
-    # ── SGP41 INDEX ROWS — hidden, overlaps VOC area, reveals if SGP4x added ─
-    - obj:
-        id: section_sgp41
-        x: 0
-        y: 232
-        width: 240
-        height: 88
-        bg_color: 0x000000
-        border_width: 0
-        pad_all: 4
-        hidden: true
-        widgets:
-          - label:
-              x: 0
-              y: 4
-              text: "SGP41 VOC Index (1-500):"
-              text_font: font_small
-              text_color: 0x666666
-          - label:
-              id: lbl_sgp41_voc
-              x: 185
-              y: 4
-              text: "---"
-              text_font: font_small
-              text_color: 0xFFFFFF
-          - label:
-              x: 0
-              y: 22
-              text: "SGP41 NOx Index (1-500):"
-              text_font: font_small
-              text_color: 0x666666
-          - label:
-              id: lbl_sgp41_nox
-              x: 185
-              y: 22
-              text: "---"
-              text_font: font_small
-              text_color: 0xFFFFFF
+                - label:
+                    x: 4
+                    y: 2
+                    text: "VOC Idx:"
+                    text_font: font_small
+                    text_color: 0x666666
+                - label:
+                    id: lbl_sgp41_voc
+                    x: 65
+                    y: 2
+                    text: "---"
+                    text_font: font_small
+                    text_color: 0xFFFFFF
+                - label:
+                    x: 120
+                    y: 2
+                    text: "NOx Idx:"
+                    text_font: font_small
+                    text_color: 0x666666
+                - label:
+                    id: lbl_sgp41_nox
+                    x: 185
+                    y: 2
+                    text: "---"
+                    text_font: font_small
+                    text_color: 0xFFFFFF
 
 
 # ── Display ──────────────────────────────────────────────────────────────────
@@ -864,7 +828,7 @@ uart:
     data_bits: 8
     stop_bits: 1
     debug:
-      direction: RX
+      direction: BOTH
       dummy_receiver: true
       after:
         bytes: 9
@@ -872,8 +836,10 @@ uart:
         - lambda: |-
             UARTDebug::log_hex(direction, bytes, ',');
             if (bytes.size() == 9 && bytes[0] == 0xFF && bytes[1] == 0x17) {
-              float value = float((bytes[6] << 8) | bytes[7]);
-              id(ch2o_ze08).publish_state(value);
+              float ppb   = float((bytes[6] << 8) | bytes[7]);
+              float ugm3  = float((bytes[4] << 8) | bytes[5]);
+              id(ch2o_ze08).publish_state(ppb);
+              id(ch2o_ze08_ugm3).publish_state(ugm3);
             }
 
   - tx_pin: GPIO08
@@ -918,25 +884,32 @@ sensor:
       - exponential_moving_average:
           send_every: 1
           alpha: 0.5
+  # ZE08 CH2O µg/m³ — drives the display arc
+  # Thresholds based on WHO indoor guideline (80ppb ≈ 98µg/m³)
+  - platform: template
+    name: "ZE08 CH2O ugm3"
+    unit_of_measurement: "µg/m³"
+    state_class: measurement
+    device_class: volatile_organic_compounds
+    id: ch2o_ze08_ugm3
+    filters:
+      - filter_out: 0.0
+      - exponential_moving_average:
+          send_every: 1
+          alpha: 0.5
     on_value:
       then:
         - lvgl.widget.update:
             id: section_voc
             hidden: false
-        - lvgl.arc.update:
+        - lvgl.bar.update:
             id: arc_ch2o
-            value: !lambda "return (int)clamp(x, 0.0f, 200.0f);"
+            value: !lambda "return (int)clamp(x, 0.0f, 250.0f);"
         - lvgl.label.update:
             id: lbl_ch2o
             text: !lambda |-
-              char buf[8]; snprintf(buf, sizeof(buf), "%.0f", x); return buf;
-        - lvgl.widget.update:
-            id: arc_ch2o
-            indicator:
-              arc_color: !lambda |-
-                if (x > 100) return lv_color_hex(0xFF1616);   // WHO indoor limit
-                if (x > 50)  return lv_color_hex(0xFF9900); // Conservative warning
-                return lv_color_hex(0x00C800);
+              char buf[12]; snprintf(buf, sizeof(buf), "%.0f \u00b5g/m\u00b3", x); return buf;
+
 
   - platform: uptime
     name: "Uptime"
@@ -1175,20 +1148,23 @@ sensor:
           - lvgl.widget.update:
               id: arc_ens_voc
               hidden: false
-          - lvgl.arc.update:
+          - lvgl.widget.update:
+              id: lbl_ens_voc_name
+              hidden: false
+          - lvgl.bar.update:
               id: arc_ens_voc
               value: !lambda "return (int)clamp(x, 0.0f, 2000.0f);"
           - lvgl.label.update:
               id: lbl_ens_voc
               text: !lambda |-
                 char buf[8]; snprintf(buf, sizeof(buf), "%.0f", x); return buf;
-          - lvgl.widget.update:
-              id: arc_ens_voc
-              indicator:
-                arc_color: !lambda |-
-                  if (x > 500) return lv_color_hex(0xFF1616);   // WELL Building Standard max
-                  if (x > 300) return lv_color_hex(0xFF9900); // Investigate sources
-                  return lv_color_hex(0x00C800);
+          - lvgl.label.update:
+              id: lbl_ens_voc
+              text_color: !lambda |-
+                if (x > 500) return lv_color_hex(0xFF1616);   // WELL Building Standard max
+                if (x > 300) return lv_color_hex(0xFF9900);   // Investigate sources
+                return lv_color_hex(0x00C800);
+
       filters:
         - exponential_moving_average:
             send_every: 1
@@ -1236,20 +1212,14 @@ sensor:
           - lvgl.widget.update:
               id: section_voc
               hidden: false
-          - lvgl.arc.update:
+          - lvgl.bar.update:
               id: arc_sgp30_voc
-              value: !lambda "return (int)clamp(x, 0.0f, 1500.0f);"
+              value: !lambda "return (int)clamp(x, 0.0f, 500.0f);"
           - lvgl.label.update:
               id: lbl_sgp30_voc
               text: !lambda |-
-                char buf[8]; snprintf(buf, sizeof(buf), "%.0f", x); return buf;
-          - lvgl.widget.update:
-              id: arc_sgp30_voc
-              indicator:
-                arc_color: !lambda |-
-                  if (x > 500) return lv_color_hex(0xFF1616);   // WELL Building Standard max
-                  if (x > 300) return lv_color_hex(0xFF9900); // Investigate sources
-                  return lv_color_hex(0x00C800);
+                char buf[10]; snprintf(buf, sizeof(buf), "%.0f ppb", x); return buf;
+
       filters:
         - exponential_moving_average:
             send_every: 1
@@ -1314,20 +1284,14 @@ sensor:
           - lvgl.widget.update:
               id: section_particles
               hidden: false
-          - lvgl.arc.update:
+          - lvgl.bar.update:
               id: arc_pm1
               value: !lambda "return id(lv_pm1_val);"
           - lvgl.label.update:
               id: lbl_pm1
               text: !lambda |-
                 char buf[8]; snprintf(buf, sizeof(buf), "%d", id(lv_pm1_val)); return buf;
-          - lvgl.widget.update:
-              id: arc_pm1
-              indicator:
-                arc_color: !lambda |-
-                  if (x > 25) return lv_color_hex(0xFF1616);   // WHO 2021 indoor guideline
-                  if (x > 10) return lv_color_hex(0xFF9900); // Elevated, investigate
-                  return lv_color_hex(0x00C800);
+
     pm_2_5:
       name: "PMS Particulate Matter <2.5µm Concentration"
       id: pm25_pms
@@ -1337,21 +1301,14 @@ sensor:
               id(raw_pm25) = x;
               float v = id(pm_diff_mode) ? max(0.0f, x - id(raw_pm1)) : x;
               id(lv_pm25_val) = (int)clamp(v, 0.0f, 30.0f);
-          - lvgl.arc.update:
+          - lvgl.bar.update:
               id: arc_pm25
               value: !lambda "return id(lv_pm25_val);"
           - lvgl.label.update:
               id: lbl_pm25
               text: !lambda |-
                 char buf[8]; snprintf(buf, sizeof(buf), "%d", id(lv_pm25_val)); return buf;
-          - lvgl.widget.update:
-              id: arc_pm25
-              indicator:
-                arc_color: !lambda |-
-                  float v = id(pm_diff_mode) ? max(0.0f, x - id(raw_pm1)) : x;
-                  if (v > 25) return lv_color_hex(0xFF1616);
-                  if (v > 10) return lv_color_hex(0xFF9900);
-                  return lv_color_hex(0x00C800);
+
     pm_10_0:
       name: "PMS Particulate Matter <10.0µm Concentration"
       id: pm10_pms
@@ -1361,18 +1318,10 @@ sensor:
               id(raw_pm10) = x;
               float v = id(pm_diff_mode) ? max(0.0f, x - id(raw_pm25)) : x;
               id(lv_pm10_val) = (int)clamp(v, 0.0f, 100.0f);
-          - lvgl.arc.update:
+          - lvgl.bar.update:
               id: arc_pm10
               value: !lambda "return id(lv_pm10_val);"
           - lvgl.label.update:
               id: lbl_pm10
               text: !lambda |-
                 char buf[8]; snprintf(buf, sizeof(buf), "%d", id(lv_pm10_val)); return buf;
-          - lvgl.widget.update:
-              id: arc_pm10
-              indicator:
-                arc_color: !lambda |-
-                  float v = id(pm_diff_mode) ? max(0.0f, x - id(raw_pm25)) : x;
-                  if (v > 45) return lv_color_hex(0xFF1616);
-                  if (v > 20) return lv_color_hex(0xFF9900);
-                  return lv_color_hex(0x00C800);
