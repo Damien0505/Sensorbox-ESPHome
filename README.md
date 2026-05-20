@@ -14,7 +14,6 @@ This repository contains modified ESPHome configurations for the **3D Printer Em
 |------|-------------|
 | `airquality01.yaml` | Non-LVGL version using ESPHome's native display lambda renderer |
 | `airquality01_lvgl.yaml` | LVGL version using arc gauge widgets |
-| `winsen_ze08.h` | Header file for Winsen ZE08 Formaldahyde sensor |
 
 ---
 
@@ -157,16 +156,22 @@ The display shows arc/gauge style indicators for each sensor reading, colour-cod
 
 ```
 ┌─────────────────────────┐
-│  24.5°C    51.2%        │  ← temp / humidity / datetime
+│ TEMP  HUM   QNH   DEW   │  ← colour-coded; datetime below
+│ 22°C  54%  1031  13°C   │
 ├─────────────────────────┤
-│  PARTICLES  µg/m³       │
-│   [PM1]  [PM2.5] [PM10] │  ← arc gauges, auto-centred
+│ PARTICLES CUMUL  µg/m³  │  ← tap to toggle cumulative/diff
+│ PM1   [████░░░░░░░]  9  │
+│ PM2.5 [█████░░░░░░] 13  │  ← gradient bars: green→amber→red
+│ PM10  [█████░░░░░░] 14  │
 ├─────────────────────────┤
-│  CO2  ppm               │
-│      [SCD40] [ENS*]     │  ← ENS160 hidden until connected
+│ CO2  ppm                │
+│     [SCD40]  [ENS*]     │  ← arc gauges, ENS160 hidden
 ├─────────────────────────┤
-│  VOC  ppb               │
-│  [SGP30] [ZE08] [ENS*]  │  ← ENS160 hidden until connected
+│ VOC  ppb                │
+│ SGP30  [████░░░░░░] 245 ppb │
+│ CH2O   [██░░░░░░░░]  8µg/m³ │  ← gradient bars
+│ ENS160 [hidden until connected] │
+│ VOC Idx: ---  NOx Idx: ---    │  ← SGP41, hidden until connected
 └─────────────────────────┘
 ```
 
@@ -197,24 +202,32 @@ The sensors currently confirmed connected on this hardware:
 | BMP280 | I2C main (0x77) | ✅ Connected |
 | SCD40 | I2C main (0x62) | ✅ Connected |
 | SGP30 | I2C main (0x58) | ✅ Connected |
+| SGP41 | I2C main (0x59) | ✅ Connected |
 | PMSX003 | UART (GPIO7/8) | ✅ Connected |
 | ZE08-CH2O | UART (GPIO9/10) | ✅ Connected |
+| ENS160 + AHT20 | I2C secondary (0x53/0x38) | ✅ Connected |
 | SHT40 | I2C main (0x44) | ❌ Not present |
-| ENS160 + AHT20 | I2C secondary | ❌ Not present |
-| SGP4x | I2C main (0x59) | ❌ Not present |
 
-#### Auto-Centring Arc Layout
-Each section uses an LVGL **flex row layout** for the arc container:
+#### Mixed Arc and Bar Layout
+The display uses a mixed widget approach:
+
+- **CO2 section** — arc gauges, giving a prominent visual indicator for the most important air quality metric
+- **Particles and VOC sections** — horizontal bar widgets, providing space-efficient display of multiple sensors with name, bar and value on each row
+
+#### Gradient Bars
+All bar indicators use a green→amber→red horizontal gradient defined once in the `lvgl: gradients:` section:
 
 ```yaml
-layout:
-  type: flex
-  flex_flow: ROW
-  flex_align_main: CENTER
-  flex_align_cross: CENTER
+gradients:
+  - id: bar_grad
+    direction: hor
+    stops:
+      - color: 0x00C800   # green at 0%
+      - color: 0xFF9900   # amber at 50%
+      - color: 0xFF1616   # red at 100%
 ```
 
-Since LVGL excludes hidden widgets from flex layout calculations, visible arcs are automatically centred regardless of how many are showing. A single arc sits in the middle; two arcs are evenly spaced as a centred pair; three fill the width.
+The gradient spans the full bar width but LVGL only renders up to the current value — so low readings show green, mid readings show green fading to amber, and high readings reveal the full spectrum. No per-update colour calculations needed.
 
 #### Datetime Display
 The datetime label is updated via the `time` component's `on_time_sync` and `on_time` triggers rather than being redrawn every frame:
@@ -307,7 +320,7 @@ Accurate to within 0.35°C for typical indoor temperature ranges.
 
 ### Colour Thresholds
 
-Arc gauges use a three-level colour scale based on indoor air quality guidelines for a home environment. Thresholds are intentionally tighter than general/outdoor or workplace standards, reflecting that occupants may have prolonged exposure in a living space.
+Bar indicators use a continuous **green→amber→red gradient** that fills as values increase. Arc gauges (CO2 section) use a dynamic colour change at defined thresholds. Both approaches are based on indoor air quality guidelines for a home environment. Thresholds are intentionally tighter than general/outdoor or workplace standards, reflecting that occupants may have prolonged exposure in a living space.
 
 | Colour | Meaning |
 |--------|---------|
@@ -324,9 +337,13 @@ Arc gauges use a three-level colour scale based on indoor air quality guidelines
 | **PM10** (µg/m³) | 0–20 | 20–45 | >45 | WHO 2021 indoor guideline |
 | **CO2** (ppm) | 400–800 | 800–1200 | >1200 | ASHRAE / RESET Air standard |
 | **TVOC** (ppb) | 0–300 | 300–500 | >500 | WELL Building Standard |
-| **CH2O** (ppb) | 0–50 | 50–100 | >100 | WHO indoor guideline (80ppb 30-min avg) |
+| **CH2O** (µg/m³) | 0–62 | 62–123 | >123 | WHO indoor guideline (≈80ppb) |
+| **SGP41 VOC Index** | 0–100 | 100–300 | >300 | Sensirion VOC Index scale (100 = baseline) |
+| **SGP41 NOx Index** | 0–100 | 100–300 | >300 | Sensirion NOx Index scale (100 = baseline) |
 
 > **Note on PM1:** No official WHO standard exists specifically for PM1. The PM2.5 thresholds are applied as a conservative approximation given the smaller particle size.
+>
+> **Note on ZE08 display:** The ZE08-CH2O bar displays the µg/m³ value from the sensor packet rather than ppb. This is because some sensors produce a variable µg/m³ reading while the ppb output remains clamped at 5000 during extended burn-in. Both values are reported to Home Assistant. The WHO indoor guideline of 80ppb ≈ 98µg/m³ is used for the red threshold.
 >
 > **Note on formaldehyde:** Thresholds are especially relevant when monitoring a 3D printer enclosure, as several common filaments (particularly ABS, ASA and resin) are known sources of formaldehyde and VOC emissions.
 
@@ -359,6 +376,8 @@ The display mode can be changed two ways:
 1. **Home Assistant** — a switch entity named **PM Differential Mode** is exposed to HA. Toggle it from any HA dashboard or automation
 2. **On-screen** — tap the `PARTICLES CUMUL` / `PARTICLES DIFF` heading label directly on the display
 
+In differential mode the bar values change but the labels remain `PM1`, `PM2.5` and `PM10` — the section heading switches between `PARTICLES CUMUL` and `PARTICLES DIFF` to indicate the current mode.
+
 Both methods are synchronised — toggling from HA updates the display label and arc names immediately, and vice versa.
 
 ---
@@ -380,6 +399,27 @@ psram:
 ```
 
 Without this, the display buffer allocation will fail silently and produce a blank screen.
+
+---
+
+## Hardware Notes — ZE08 5V Power Bodge
+
+The original Sensorbox V2 PCB routes **3.3V** to the ZE08-CH2O connector pin 4 (VIN). However the ZE08 datasheet specifies **5V** as the required supply voltage for correct electrochemical cell operation. Running the sensor on 3.3V may result in incorrect readings, slow or incomplete burn-in, or the sensor failing to release its warmup sentinel value.
+
+> ⚠️ **If your ZE08 is not producing correct readings, check the supply voltage first.**
+
+### Fix
+
+The PCB provides several convenient 5V sources that can be used for the bodge wire:
+
+- **Unused sensor headers** — any unpopulated sensor header that has a 5V pin can supply the wire
+- **Power rail header rows** — the PCB has dedicated rows of through-holes for 5V, 3.3V and GND along the board edges, specifically intended for power distribution
+
+Run a short bodge wire from any of these 5V sources to **pin 4 of the ZE08 connector**. Pin 4 is the VIN supply pin — verify against the ZE08 datasheet pinout before connecting. This overrides the 3.3V trace and supplies the correct voltage to the sensor.
+
+This fix should be applied when building new boards — route the 5V bodge wire before populating any other components so it is easy to access.
+
+> **Note:** Thomas Sanladerer has acknowledged the 3.3V routing was an oversight in the original PCB design. Future PCB revisions may correct this.
 
 ---
 
